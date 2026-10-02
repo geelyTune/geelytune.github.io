@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Белый список привилегированных прав GeelyMediaBridge.
+
+    Право проверяется по uid процесса-вызывателя, поэтому держателем
+    OPENAPI_MEDIACENTER_PERMISSION должен быть отдельный привилегированный
+    пакет в своём uid (не код бара в процессе SystemUI). GMB — этот пакет.
+
+    ro.control_privapp_permissions=enforce: без этой записи привилегированные
+    права приложению на загрузке не выдаются. Кладётся в
+    /system/etc/permissions/. Читается PackageManager только при загрузке —
+    после установки нужна перезагрузка.
+-->
+<permissions>
+    <privapp-permissions package="dev.mertsalov.geelymediabridge">
+        <!-- bind к сервису медиацентра и регистрация источника. -->
+        <permission name="ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION"/>
+        <!-- Читать чужие медиасессии (Spotify, Я.Музыка). -->
+        <permission name="android.permission.MEDIA_CONTENT_CONTROL"/>
+        <!-- Сессии и медиацентр — в профиле водителя (user 10). -->
+        <permission name="android.permission.INTERACT_ACROSS_USERS"/>
+        <permission name="android.permission.INTERACT_ACROSS_USERS_FULL"/>
+        <!-- Жив ли Навигатор — список чужих процессов (T-7, NaviProxy). -->
+        <permission name="android.permission.REAL_GET_TASKS"/>
+        <!-- Обновления GeelyTune и самого GMB без экрана подтверждения (F-36, Installer). -->
+        <permission name="android.permission.INSTALL_PACKAGES"/>
+    </privapp-permissions>
+</permissions>
