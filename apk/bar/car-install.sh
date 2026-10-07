@@ -16,6 +16,21 @@ done
 
 die() { echo "ОШИБКА: $*"; exit 1; }
 
+# Второй установщик рядом с первым портит его копию заводского плагина и
+# монтирование нижнего слоя — до ловушки уборки (она снесла бы чужой kit).
+LOCK=/data/local/tmp/gt-bar.lock
+mkdir $LOCK 2>/dev/null || { echo "ОШИБКА: установка уже идёт"; exit 6; }
+
+cleanup() {
+    rc=$?
+    rmdir $LOCK 2>/dev/null
+    [ "$rc" = 3 ] && return
+    case "$KIT" in
+        /data/local/tmp/gt-bar) cd / && rm -rf "$KIT" ;;
+    esac
+}
+trap cleanup EXIT
+
 parked() {
     cmd car_service get-property-value 11400400 0 2>/dev/null | grep -q 'int32Values: \[4\]'
 }
@@ -76,13 +91,13 @@ crashed() {
 
 ours_up() {
     i=0
-    while [ $i -lt 30 ]; do
+    while [ $i -lt 60 ]; do
         crashed && return 1
         logcat -d -s GTBarCore:V | grep -q 'core started' && break
         sleep 1
         i=$((i + 1))
     done
-    [ $i -lt 30 ] || return 1
+    [ $i -lt 60 ] || return 1
     sleep 5
     [ -n "$(pidof com.android.systemui)" ] && ! crashed
 }
@@ -128,9 +143,11 @@ install)
         echo "   на машине чужая сборка плагина (не заводская и не наша) — её правки пропадут"
         exit 3
     fi
+    PREV=""
     if [ "$now" != stock ]; then
         mkdir -p $BAK
-        cp $APK "$BAK/AutoSystemUIPlugin.before-$(date +%Y%m%d-%H%M%S).apk"
+        PREV="$BAK/AutoSystemUIPlugin.before-$(date +%Y%m%d-%H%M%S).apk"
+        cp $APK "$PREV" || PREV=""
     fi
     echo "   сборка плагина на машине (около минуты)..."
     sh "$KIT/run.sh" "$KIT/stock.apk" "$KIT/out.apk" "$(cat "$KIT/version.txt")" >/dev/null 2>"$KIT/build.log"
@@ -147,7 +164,17 @@ install)
         echo "   готово: сборка $(cat "$KIT/version.txt"), прошивка $VER"
         exit 0
     fi
-    echo "   панель не поднялась с нашим плагином — возвращаю заводской"
+    if [ "$now" = ours ] && [ -n "$PREV" ]; then
+        echo "   панель не поднялась с новой сборкой — возвращаю прежнюю"
+        place "$PREV"
+        if restart_ui && ours_up; then
+            echo "   прежняя сборка возвращена"
+            exit 5
+        fi
+        echo "   прежняя сборка тоже не поднялась — возвращаю заводской"
+    else
+        echo "   панель не поднялась с нашим плагином — возвращаю заводской"
+    fi
     revert
     exit 4
     ;;
