@@ -49,6 +49,13 @@ stock_to() {
     else
         ver=$(dumpsys package $PKG 2>/dev/null | grep versionName | head -1 | cut -d= -f2)
         copy="$BAK/AutoSystemUIPlugin.stock-$ver.apk"
+        # Система плагин не знает (отбросила при загрузке) — версии нет;
+        # тогда единственная заводская копия, какая есть (13.10, QPU2).
+        if [ -z "$ver" ]; then
+            set -- "$1" $BAK/AutoSystemUIPlugin.stock-*.apk
+            [ $# = 2 ] && [ -s "$2" ] && copy="$2"
+            set -- "$1"
+        fi
         if [ ! -s "$copy" ]; then
             touch $DIR/.gt-w 2>/dev/null || die "/system закрыт на запись: после первого adb remount перезагрузите машину и запустите установку снова"
             rm -f $DIR/.gt-w
@@ -64,29 +71,32 @@ stock_to() {
 }
 
 place() {
-    cp "$1" $APK || die "не удалось записать $APK (adb remount прошёл?)"
-    chown root:root $APK
-    chmod 644 $APK
+    cp "$1" "$APK.gtnew" || { rm -f "$APK.gtnew"; die "не удалось записать $APK (adb remount прошёл?)"; }
+    chown root:root "$APK.gtnew"
+    chmod 644 "$APK.gtnew"
+    mv -f "$APK.gtnew" $APK || { rm -f "$APK.gtnew"; die "не удалось записать $APK (adb remount прошёл?)"; }
     restorecon $APK 2>/dev/null || chcon u:object_r:system_file:s0 $APK
     rm -f $DIR/oat/arm64/*.odex $DIR/oat/arm64/*.vdex
     cmd package compile -f -m speed $PKG >/dev/null 2>&1 || echo "   перекомпиляция не прошла — плагин может не пережить перезагрузку"
 }
 
 restart_ui() {
+    OLD_UI=$(pidof com.android.systemui)
     logcat -c
     logcat -b crash -c
-    kill $(pidof com.android.systemui) 2>/dev/null
+    kill $OLD_UI 2>/dev/null
     i=0
     while [ $i -lt 30 ]; do
         sleep 1
         i=$((i + 1))
-        [ $i -ge 3 ] && [ -n "$(pidof com.android.systemui)" ] && return 0
+        now=$(pidof com.android.systemui)
+        [ $i -ge 3 ] && [ -n "$now" ] && [ "$now" != "$OLD_UI" ] && return 0
     done
     return 1
 }
 
 crashed() {
-    logcat -d -b crash | grep -q 'com.android.systemui'
+    logcat -d -b crash | grep 'com.android.systemui' | { [ -n "$OLD_UI" ] && grep -vw "$OLD_UI" || cat; } | grep -q .
 }
 
 ours_up() {
@@ -138,6 +148,17 @@ echo "   прошивка плагина: $VER"
 
 case "$MODE" in
 install)
+    # Проверка подписи Parrot (13.10, плагин QPU2): при загрузке система
+    # сверяет подпись приложений в /system с хранилищем Parrot, нашего ключа
+    # там нет — плагин отбрасывается целиком и панелей нет, хотя без
+    # перезагрузки всё работает. На ранних прошивках свойство пустое, а
+    # проверка включена, поэтому выключенной считаем только явное false.
+    if [ -d /system/etc/security/parrot ] && [ "$(getprop ro.vendor.ecarx.app_verify)" != false ]; then
+        echo "ОШИБКА: включена проверка подписи Parrot — после перезагрузки система не пропустит плагин"
+        echo "   сначала снимите блокировку установки (комплект GeelyTune-unlock), затем повторите"
+        echo "   на машине ничего не изменено"
+        exit 7
+    fi
     now=$(kind "$KIT/stock.apk")
     if [ "$now" = other ] && [ $FORCE = 0 ]; then
         echo "   на машине чужая сборка плагина (не заводская и не наша) — её правки пропадут"
