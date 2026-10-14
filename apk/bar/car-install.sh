@@ -19,7 +19,25 @@ die() { echo "ОШИБКА: $*"; exit 1; }
 # Второй установщик рядом с первым портит его копию заводского плагина и
 # монтирование нижнего слоя — до ловушки уборки (она снесла бы чужой kit).
 LOCK=/data/local/tmp/gt-bar.lock
-mkdir $LOCK 2>/dev/null || { echo "ОШИБКА: установка уже идёт"; exit 6; }
+# Замок брошенного запуска (13.10): sh машины не выполняет ловушку EXIT,
+# если его убили (kill -9, у сайта обрыв USB или предел ожидания), — замок
+# оставался навсегда, и каждый следующий запуск отвечал «установка уже
+# идёт». Живого установщика нет — замок брошен, снимаем. Себя не считаем:
+# свой процесс, родителя (sh -c с нашей командой) и свои подоболочки.
+others() {
+    for d in /proc/[0-9]*; do
+        p=${d#/proc/}
+        case "$p" in "$$"|"$PPID") continue ;; esac
+        grep -q 'car-install[.]sh' $d/cmdline 2>/dev/null || continue
+        [ "$(sed -n 's/^PPid:[[:space:]]*//p' $d/status 2>/dev/null)" = "$$" ] && continue
+        echo $p
+    done
+}
+if ! mkdir $LOCK 2>/dev/null; then
+    [ -n "$(others)" ] && { echo "ОШИБКА: установка уже идёт"; exit 6; }
+    rm -rf $LOCK
+    mkdir $LOCK 2>/dev/null || { echo "ОШИБКА: установка уже идёт"; exit 6; }
+fi
 
 cleanup() {
     rc=$?
@@ -30,6 +48,10 @@ cleanup() {
     esac
 }
 trap cleanup EXIT
+# Обрыв связи (HUP) установку не прерывает — она доходит до конца сама,
+# с проверкой и откатом; TERM и Ctrl-C выходят через уборку.
+trap '' HUP
+trap 'exit 143' TERM INT
 
 parked() {
     cmd car_service get-property-value 11400400 0 2>/dev/null | grep -q 'int32Values: \[4\]'
@@ -112,15 +134,24 @@ ours_up() {
     [ -n "$(pidof com.android.systemui)" ] && ! crashed
 }
 
+# Мест под ярлыки в заводской панели (15.10): у электрической (e245) — четыре,
+# у EM-i — три, четвёртое место у неё занимает лючок бака. Лишний ярлык кладёт
+# SystemUI в цикл падений — так у тех, кто ставил чужую сборку на четыре
+# ярлыка, наша панель не поднималась и откатывалась.
+case "$(getprop ro.product.name)$(getprop ro.build.product)" in
+    *e245*) SLOTS=4 ;;
+    *) SLOTS=3 ;;
+esac
+
 trim_shortcuts() {
     s=$(settings get secure sysui_plugin_shortcut_settings)
     [ -n "$s" ] && [ "$s" != null ] || return 0
     n=$(echo "$s" | tr ',' '\n' | grep -c .)
-    [ "$n" -le 3 ] && return 0
+    [ "$n" -le $SLOTS ] && return 0
     mkdir -p $BAK
     echo "$s" > "$BAK/shortcuts-$(date +%Y%m%d-%H%M%S).txt"
-    settings put secure sysui_plugin_shortcut_settings "$(echo "$s" | cut -d, -f1-3)"
-    echo "   ярлыков было $n, заводская панель держит три — лишние сняты, список сохранён в $BAK"
+    settings put secure sysui_plugin_shortcut_settings "$(echo "$s" | cut -d, -f1-$SLOTS)"
+    echo "   ярлыков было $n, заводская панель держит $SLOTS — лишние сняты, список сохранён в $BAK"
 }
 
 kind() {
@@ -179,6 +210,8 @@ install)
         exit 2
     fi
     [ $rc = 0 ] || die "сборка не удалась: $(tail -1 "$KIT/build.log")"
+    # Ярлыков больше, чем мест, — до установки, а не только при откате.
+    trim_shortcuts
     place "$KIT/out.apk"
     echo "   перезапуск панели..."
     if restart_ui && ours_up; then
