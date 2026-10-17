@@ -114,6 +114,7 @@ restart_ui() {
         now=$(pidof com.android.systemui)
         [ $i -ge 3 ] && [ -n "$now" ] && [ "$now" != "$OLD_UI" ] && return 0
     done
+    WHY="SystemUI не перезапустился за 30 с"
     return 1
 }
 
@@ -124,14 +125,34 @@ crashed() {
 ours_up() {
     i=0
     while [ $i -lt 60 ]; do
-        crashed && return 1
+        crashed && { WHY="SystemUI упал с нашим плагином через $i с"; return 1; }
         logcat -d -s GTBarCore:V | grep -q 'core started' && break
         sleep 1
         i=$((i + 1))
     done
-    [ $i -lt 60 ] || return 1
+    [ $i -lt 60 ] || { WHY="плагин не отметился за 60 с (нет «core started»)"; return 1; }
     sleep 5
-    [ -n "$(pidof com.android.systemui)" ] && ! crashed
+    [ -n "$(pidof com.android.systemui)" ] || { WHY="SystemUI пропал через 5 с после старта плагина"; return 1; }
+    crashed && { WHY="SystemUI упал через 5 с после старта плагина"; return 1; }
+    return 0
+}
+
+# Панель не поднялась (B-95, 17.10: отчёт сайта без падений — причины не
+# видно): до отката, пока журнал не стёрт, — строки SystemUI с перезапуска
+# и загрузчика плагинов в $KIT/fail.log; сайт кладёт его в отчёт.
+save_fail() {
+    p=$(pidof com.android.systemui)
+    logcat -d -b main,system,crash -v threadtime > "$KIT/fail-all.log" 2>/dev/null
+    {
+        echo "== причина: $WHY"
+        echo "== SystemUI сейчас: ${p:-нет}, был до перезапуска: ${OLD_UI:-нет}"
+        echo "== загрузчик плагинов, наши теги, ошибки классов"
+        grep -E "Plugin|GTBar|AndroidRuntime|VerifyError|ClassNotFound|NoSuchMethod|NoSuchField|NoClassDef|LinkageError|systemuiplugin|ANR in" "$KIT/fail-all.log" | tail -n 300
+        if [ -n "$p" ]; then
+            echo "== журнал SystemUI ($p) с перезапуска"
+            grep -E "^[0-9-]+ [0-9:.]+ +($(echo $p | tr ' ' '|')) +" "$KIT/fail-all.log" | tail -n 400
+        fi
+    } > "$KIT/fail.log" 2>/dev/null
 }
 
 # Мест под ярлыки в заводской панели (15.10): у электрической (e245) — четыре,
@@ -218,6 +239,8 @@ install)
         echo "   готово: сборка $(cat "$KIT/version.txt"), прошивка $VER"
         exit 0
     fi
+    save_fail
+    echo "   причина: $WHY"
     if [ "$now" = ours ] && [ -n "$PREV" ]; then
         echo "   панель не поднялась с новой сборкой — возвращаю прежнюю"
         place "$PREV"
