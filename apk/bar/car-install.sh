@@ -104,6 +104,7 @@ place() {
 
 restart_ui() {
     OLD_UI=$(pidof com.android.systemui)
+    T0=$(date +%s)
     logcat -c
     logcat -b crash -c
     kill $OLD_UI 2>/dev/null
@@ -122,11 +123,23 @@ crashed() {
     logcat -d -b crash | grep 'com.android.systemui' | { [ -n "$OLD_UI" ] && grep -vw "$OLD_UI" || cat; } | grep -q .
 }
 
+# Плагин поднялся: строка в журнале или отметка старта в Settings.Global
+# (BarCore.start пишет время первым делом). Журнал не опора (B-95, 17.10,
+# EX5 EV 3042): logd выкидывает старые строки самого болтливого процесса,
+# и строка SystemUI при запуске исчезает раньше, чем мы её прочтём.
+started() {
+    logcat -d -s GTBarCore:V | grep -q 'core started' && return 0
+    st=$(settings get global geelytune_bar_started 2>/dev/null)
+    case "$st" in ''|null|*[!0-9]*) return 1 ;; esac
+    # Миллисекунды не влезают в 32-битные целые mksh — сравниваем секунды.
+    [ "${st%???}" -ge "${T0:-0}" ]
+}
+
 ours_up() {
     i=0
     while [ $i -lt 60 ]; do
         crashed && { WHY="SystemUI упал с нашим плагином через $i с"; return 1; }
-        logcat -d -s GTBarCore:V | grep -q 'core started' && break
+        started && break
         sleep 1
         i=$((i + 1))
     done
@@ -149,6 +162,9 @@ save_fail() {
     {
         echo "== причина: $WHY"
         echo "== комплект: $(cat "$KIT/version.txt" 2>/dev/null), SystemUI сейчас: ${p:-нет}, до перезапуска: ${OLD_UI:-нет}"
+        echo "== отметка старта плагина: $(settings get global geelytune_bar_started 2>/dev/null), перезапуск: ${T0:-?}000"
+        echo "== буфер журнала: $(logcat -g 2>/dev/null | tr '\n' ' ')"
+        echo "== строк: $(grep -c '' $all), первая: $(grep -m1 -E '^[0-9]' $all | cut -c1-18)"
         echo "== наши теги и ошибки классов"
         grep -E "GTBar|AndroidRuntime|VerifyError|ClassNotFound|NoSuchMethod|NoSuchField|NoClassDef|LinkageError|ANR in" $all | tail -n 200
         echo "== загрузчик плагинов"
