@@ -139,20 +139,26 @@ ours_up() {
 
 # Панель не поднялась (B-95, 17.10: отчёт сайта без падений — причины не
 # видно): до отката, пока журнал не стёрт, — строки SystemUI с перезапуска
-# и загрузчика плагинов в $KIT/fail.log; сайт кладёт его в отчёт.
+# и загрузчика плагинов в $FAIL; сайт кладёт его в отчёт. Вне $KIT: папку
+# комплекта cleanup стирает на выходе.
+FAIL=/data/local/tmp/gt-bar-fail.log
 save_fail() {
     p=$(pidof com.android.systemui)
-    logcat -d -b main,system,crash -v threadtime > "$KIT/fail-all.log" 2>/dev/null
+    all=$FAIL.all
+    logcat -d -b main,system,crash -v threadtime > $all 2>/dev/null
     {
         echo "== причина: $WHY"
-        echo "== SystemUI сейчас: ${p:-нет}, был до перезапуска: ${OLD_UI:-нет}"
-        echo "== загрузчик плагинов, наши теги, ошибки классов"
-        grep -E "Plugin|GTBar|AndroidRuntime|VerifyError|ClassNotFound|NoSuchMethod|NoSuchField|NoClassDef|LinkageError|systemuiplugin|ANR in" "$KIT/fail-all.log" | tail -n 300
+        echo "== комплект: $(cat "$KIT/version.txt" 2>/dev/null), SystemUI сейчас: ${p:-нет}, до перезапуска: ${OLD_UI:-нет}"
+        echo "== наши теги и ошибки классов"
+        grep -E "GTBar|AndroidRuntime|VerifyError|ClassNotFound|NoSuchMethod|NoSuchField|NoClassDef|LinkageError|ANR in" $all | tail -n 200
+        echo "== загрузчик плагинов"
+        grep -E "PluginInstanceManager|PluginManager|PluginInstance|FlymeAutoPlugin" $all | tail -n 150
         if [ -n "$p" ]; then
             echo "== журнал SystemUI ($p) с перезапуска"
-            grep -E "^[0-9-]+ [0-9:.]+ +($(echo $p | tr ' ' '|')) +" "$KIT/fail-all.log" | tail -n 400
+            grep -E "^[0-9-]+ [0-9:.]+ +($(echo $p | tr ' ' '|')) +" $all | tail -n 400
         fi
-    } > "$KIT/fail.log" 2>/dev/null
+    } > $FAIL 2>/dev/null
+    rm -f $all
 }
 
 # Мест под ярлыки в заводской панели (15.10): у электрической (e245) — четыре,
@@ -197,6 +203,7 @@ rm -f "$KIT/stock.apk" "$KIT/out.apk"
 stock_to "$KIT/stock.apk"
 VER=$(dumpsys package $PKG 2>/dev/null | grep versionName | head -1 | cut -d= -f2)
 echo "   прошивка плагина: $VER"
+echo "   комплект: $(cat "$KIT/version.txt" 2>/dev/null)"
 
 case "$MODE" in
 install)
@@ -216,6 +223,7 @@ install)
         echo "   на машине чужая сборка плагина (не заводская и не наша) — её правки пропадут"
         exit 3
     fi
+    rm -f $FAIL
     PREV=""
     if [ "$now" != stock ]; then
         mkdir -p $BAK
