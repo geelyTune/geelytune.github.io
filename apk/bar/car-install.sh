@@ -197,6 +197,21 @@ trim_shortcuts() {
     echo "   ярлыков было $n, заводская панель держит $SLOTS — лишние сняты, список сохранён в $BAK"
 }
 
+# Проверка Parrot пропускает наш ключ (26.10, отчёт ETR-5AE, 254430
+# e245_plus): свойство не false, а наш плагин, поставленный до отказа по
+# Parrot, живёт через перезагрузки. Ключ у всех комплектов один — значит,
+# новый тоже пройдёт. Доказательство — система знает плагин, файл наш и
+# старше текущей загрузки: подписи сверяются на загрузке, а файл, подменённый
+# после неё без перезагрузки, ещё не проверен (ловушка B-69).
+parrot_passed() {
+    pm path $PKG 2>/dev/null | grep -qx "package:$APK" || return 1
+    unzip -l $APK 2>/dev/null | grep -q 'assets/geelytune-build.txt' \
+        || unzip -p $APK classes.dex 2>/dev/null | grep -q 'dev/mertsalov/geelytune' || return 1
+    boot=$(sed -n 's/^btime //p' /proc/stat)
+    born=$(stat -c %Y $APK 2>/dev/null)
+    [ -n "$boot" ] && [ -n "$born" ] && [ "$born" -lt "$boot" ]
+}
+
 kind() {
     if [ "$(md5sum $APK | cut -d' ' -f1)" = "$(md5sum "$1" | cut -d' ' -f1)" ]; then echo stock
     elif unzip -l $APK 2>/dev/null | grep -q 'assets/geelytune-build.txt'; then echo ours
@@ -228,7 +243,11 @@ install)
     # там нет — плагин отбрасывается целиком и панелей нет, хотя без
     # перезагрузки всё работает. На ранних прошивках свойство пустое, а
     # проверка включена, поэтому выключенной считаем только явное false.
-    if [ -d /system/etc/security/parrot ] && [ "$(getprop ro.vendor.ecarx.app_verify)" != false ]; then
+    # Или если система уже приняла наш ключ (parrot_passed).
+    VERIFY=$(getprop ro.vendor.ecarx.app_verify)
+    if [ -d /system/etc/security/parrot ] && [ "$VERIFY" != false ] && parrot_passed; then
+        echo "   проверка подписи Parrot (app_verify='$VERIFY') уже пропустила наш плагин при загрузке — ставлю"
+    elif [ -d /system/etc/security/parrot ] && [ "$VERIFY" != false ]; then
         echo "ОШИБКА: включена проверка подписи Parrot — после перезагрузки система не пропустит плагин"
         echo "   сначала снимите блокировку установки (комплект GeelyTune-unlock), затем повторите"
         echo "   на машине ничего не изменено"
