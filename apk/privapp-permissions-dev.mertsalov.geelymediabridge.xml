@@ -24,5 +24,7 @@
         <permission name="android.permission.REAL_GET_TASKS"/>
         <!-- Обновления GeelyTune и самого GMB без экрана подтверждения (F-36, Installer). -->
         <permission name="android.permission.INSTALL_PACKAGES"/>
+        <!-- Штатный Навигатор 263924: запросы карты через NaviProxy (B-200). -->
+        <permission name="com.yandex.navigator.automotive.ACCESS_NAVI_DATA"/>
     </privapp-permissions>
 </permissions>

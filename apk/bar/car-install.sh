@@ -61,6 +61,17 @@ upper() {
     mount | grep ' on /system type overlay' | sed -n 's/.*upperdir=\([^,)]*\).*/\1/p' | head -1
 }
 
+is_ours() {
+    unzip -l "$1" 2>/dev/null | grep -q 'assets/geelytune-build.txt' || unzip -p "$1" classes.dex 2>/dev/null | grep -q 'dev/mertsalov/geelytune'
+}
+
+# Файл с сервера беты: GeelyTune кладёт его в $KIT/server вместе с суммой
+# (<файл>.sha256). Годится, только если сумма сошлась.
+server_ok() {
+    f="$KIT/server/$1"
+    [ -s "$f" ] && [ -s "$f.sha256" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$(cat "$f.sha256")" ]
+}
+
 stock_to() {
     if [ -n "$(upper)" ]; then
         mkdir -p $LOWER
@@ -81,12 +92,20 @@ stock_to() {
         if [ ! -s "$copy" ]; then
             touch $DIR/.gt-w 2>/dev/null || die "/system закрыт на запись: после первого adb remount перезагрузите машину и запустите установку снова"
             rm -f $DIR/.gt-w
-            if unzip -l $APK 2>/dev/null | grep -q 'assets/geelytune-build.txt' || unzip -p $APK classes.dex 2>/dev/null | grep -q 'dev/mertsalov/geelytune'; then
-                die "на машине стоит наша сборка плагина, а копии заводского $ver в $BAK нет"
-            fi
             mkdir -p $BAK
-            cp $APK "$copy.tmp" && mv "$copy.tmp" "$copy" || die "не удалось сохранить заводской плагин в $BAK"
-            echo "   заводской плагин $ver сохранён: $copy"
+            if is_ours $APK; then
+                # 2.2.0: копия в /data — единственная, сброс её стирает;
+                # тогда — с сервера беты (GeelyTune кладёт её в $KIT/server).
+                srv="$KIT/server/AutoSystemUIPlugin.apk"
+                server_ok AutoSystemUIPlugin.apk && ! is_ours "$srv" \
+                    || die "на машине стоит наша сборка плагина, а копии заводского $ver в $BAK нет"
+                [ -n "$ver" ] || copy="$BAK/AutoSystemUIPlugin.stock-server.apk"
+                cp "$srv" "$copy.tmp" && mv "$copy.tmp" "$copy" || die "не удалось сохранить заводской плагин в $BAK"
+                echo "   заводской плагин $ver загружен с сервера беты и сохранён: $copy"
+            else
+                cp $APK "$copy.tmp" && mv "$copy.tmp" "$copy" || die "не удалось сохранить заводской плагин в $BAK"
+                echo "   заводской плагин $ver сохранён: $copy"
+            fi
         fi
         cp "$copy" "$1"
     fi
