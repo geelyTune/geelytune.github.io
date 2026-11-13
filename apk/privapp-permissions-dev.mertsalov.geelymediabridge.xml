@@ -26,5 +26,7 @@
         <permission name="android.permission.INSTALL_PACKAGES"/>
         <!-- Штатный Навигатор 263924: запросы карты через NaviProxy (B-200). -->
         <permission name="com.yandex.navigator.automotive.ACCESS_NAVI_DATA"/>
+        <!-- Громкость автомобильных групп: «Наружный динамик» GeelyTune (F-207, CarVolume). -->
+        <permission name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME"/>
     </privapp-permissions>
 </permissions>

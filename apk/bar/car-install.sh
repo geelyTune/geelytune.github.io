@@ -264,6 +264,15 @@ install)
     # проверка включена, поэтому выключенной считаем только явное false.
     # Или если система уже приняла наш ключ (parrot_passed).
     VERIFY=$(getprop ro.vendor.ecarx.app_verify)
+    # Подпись GeelyTune в хранилище Parrot кладёт кнопка сайта «Разрешить
+    # GeelyTune» — только там, где проверку не выключить, даже при
+    # app_verify=false (260551 EM-i, 11.11, B-223: плагин поставился и
+    # отброшен при загрузке). Ключ плагина публичный, в хранилище его нет.
+    if [ -f /system/etc/security/parrot/geelytune.x509.pem ] && ! parrot_passed; then
+        echo "   на этой прошивке проверку подписи Parrot не выключить — после перезагрузки система не пропустит плагин"
+        echo "   на машине ничего не изменено"
+        exit 2
+    fi
     if [ -d /system/etc/security/parrot ] && [ "$VERIFY" != false ] && parrot_passed; then
         echo "   проверка подписи Parrot (app_verify='$VERIFY') уже пропустила наш плагин при загрузке — ставлю"
     elif [ -d /system/etc/security/parrot ] && [ "$VERIFY" != false ]; then
